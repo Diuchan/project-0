@@ -41,7 +41,7 @@ def build_payload(temperature_k: float, rh: float, species: Dict[str, float]) ->
     return payload
 
 
-def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], timeout: int = 30) -> str:
+def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], solids: set | None = None, timeout: int = 30) -> str:
     """Submit the AIM form as if the user filled it and clicked the run button.
 
     Strategy:
@@ -153,6 +153,30 @@ def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], time
     if not any(match_name(k, ["rh", "humid", "relative"]) for k in payload):
         payload.setdefault("RH", str(rh))
 
+    # If requested, set checkbox/radio inputs matching solid species
+    if solids:
+        for inp in form.find_all("input"):
+            itype = (inp.get("type") or "").lower()
+            if itype in ("checkbox", "radio"):
+                name = inp.get("name")
+                if not name:
+                    continue
+                val = inp.get("value", "on")
+                lname = (name or "").lower()
+                lval = (val or "").lower()
+                # try to find a label for this input
+                label_text = ""
+                iid = inp.get("id")
+                if iid:
+                    lab = form.find("label", attrs={"for": iid})
+                    if lab:
+                        label_text = lab.get_text(" ").lower()
+                for s in solids:
+                    s_low = s.lower()
+                    if s_low in lname or s_low in lval or s_low in label_text:
+                        payload[name] = val
+                        break
+
     # Include a submit value by finding a submit/button element
     submit_added = False
     for btn in form.find_all(["input", "button"]):
@@ -232,8 +256,12 @@ def parse_aim_output(text: str) -> Dict[str, Any]:
     return results
 
 
-def run_and_parse(temperature_k: float, rh: float, species: Dict[str, float]) -> Dict[str, Any]:
-    """High-level helper: post, extract <pre> text, parse, and return results."""
-    html = post_to_aim(temperature_k, rh, species)
+def run_and_parse(temperature_k: float, rh: float, species: Dict[str, float], solids: set | None = None) -> Dict[str, Any]:
+    """High-level helper: post, extract <pre> text, parse, and return results.
+
+    `solids` is an optional set of species names that should be checked
+    on the remote form (solid-phase species checkboxes).
+    """
+    html = post_to_aim(temperature_k, rh, species, solids=solids)
     pre_text = extract_pre_text(html)
     return parse_aim_output(pre_text)

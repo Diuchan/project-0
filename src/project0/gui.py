@@ -36,15 +36,16 @@ class AIMWorker(QThread):
     result_ready = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, temp: float, rh: float, species: Dict[str, float]):
+    def __init__(self, temp: float, rh: float, species: Dict[str, float], solids: set | None = None):
         super().__init__()
         self.temp = temp
         self.rh = rh
         self.species = species
+        self.solids = solids or set()
 
     def run(self) -> None:
         try:
-            res = run_and_parse(self.temp, self.rh, self.species)
+            res = run_and_parse(self.temp, self.rh, self.species, solids=self.solids)
             self.result_ready.emit(res)
         except Exception as e:
             self.error.emit(str(e))
@@ -83,11 +84,37 @@ class MainWindow(QMainWindow):
         sl.addLayout(fl)
 
         # Species input
-        sl.addWidget(QLabel("Species concentrations (one per line: NAME VALUE)"))
-        self.species_text = QTextEdit()
-        self.species_text.setPlaceholderText("e.g.\nNa+ 0.1\nCl- 0.1\nH+ 1e-7")
-        self.species_text.setFixedHeight(120)
-        sl.addWidget(self.species_text)
+        sl.addWidget(QLabel("Species concentrations"))
+
+        # Species table: Species | Concentration | Solid?
+        self.spec_table = QTableWidget(0, 3)
+        self.spec_table.setHorizontalHeaderLabels(["Species", "Concentration", "Solid?"])
+        self.spec_table.verticalHeader().setVisible(False)
+        self.spec_table.setColumnWidth(0, 120)
+        self.spec_table.setColumnWidth(1, 100)
+        self.spec_table.setColumnWidth(2, 60)
+        self.spec_table.setFixedHeight(200)
+        sl.addWidget(self.spec_table)
+
+        # Buttons for managing species rows
+        sp_btn_layout = QHBoxLayout()
+        self.add_row_btn = QPushButton("Add Row")
+        self.add_row_btn.clicked.connect(self.add_species_row)
+        sp_btn_layout.addWidget(self.add_row_btn)
+
+        self.remove_row_btn = QPushButton("Remove Selected")
+        self.remove_row_btn.clicked.connect(self.remove_selected_rows)
+        sp_btn_layout.addWidget(self.remove_row_btn)
+
+        self.check_all_solids_btn = QPushButton("Check All Solids")
+        self.check_all_solids_btn.clicked.connect(self.check_all_solids)
+        sp_btn_layout.addWidget(self.check_all_solids_btn)
+
+        sl.addLayout(sp_btn_layout)
+
+        # Prepopulate some common species (user can edit or add their own)
+        for name in ("Na+", "Cl-", "K+", "Ca2+", "Mg2+", "NH4+", "SO4--", "NO3-", "H+"):
+            self.add_species_row(name, "")
 
         # Buttons + progress
         btn_layout = QHBoxLayout()
@@ -116,38 +143,69 @@ class MainWindow(QMainWindow):
 
         self.current_results = None
 
-    def parse_species_text(self) -> Dict[str, float]:
-        species: Dict[str, float] = {}
-        text = self.species_text.toPlainText().strip()
-        for line in text.splitlines():
-            if not line.strip():
+    def add_species_row(self, name: str = "", conc: str = "", solid: bool = False) -> None:
+        r = self.spec_table.rowCount()
+        self.spec_table.insertRow(r)
+        item_name = QTableWidgetItem(name)
+        item_name.setFlags(item_name.flags() | Qt.ItemFlag.ItemIsEditable)
+        self.spec_table.setItem(r, 0, item_name)
+
+        item_conc = QTableWidgetItem(conc)
+        item_conc.setFlags(item_conc.flags() | Qt.ItemFlag.ItemIsEditable)
+        self.spec_table.setItem(r, 1, item_conc)
+
+        item_solid = QTableWidgetItem()
+        item_solid.setFlags(item_solid.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item_solid.setCheckState(Qt.CheckState.Checked if solid else Qt.CheckState.Unchecked)
+        self.spec_table.setItem(r, 2, item_solid)
+
+    def remove_selected_rows(self) -> None:
+        selected = sorted({idx.row() for idx in self.spec_table.selectedIndexes()}, reverse=True)
+        for r in selected:
+            self.spec_table.removeRow(r)
+
+    def check_all_solids(self) -> None:
+        for r in range(self.spec_table.rowCount()):
+            item = self.spec_table.item(r, 2)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked)
+
+    def parse_species_table(self) -> (Dict[str, float], set):
+        species = {}
+        solids = set()
+        for r in range(self.spec_table.rowCount()):
+            item_name = self.spec_table.item(r, 0)
+            item_conc = self.spec_table.item(r, 1)
+            item_solid = self.spec_table.item(r, 2)
+            if not item_name:
                 continue
-            parts = line.split()
-            if len(parts) < 2:
+            name = item_name.text().strip()
+            if not name:
                 continue
-            name = parts[0]
+            val_text = item_conc.text().strip() if item_conc else ""
             try:
-                val = float(parts[1])
+                val = float(val_text) if val_text else 0.0
             except ValueError:
-                continue
+                val = 0.0
             species[name] = val
-        return species
+            if item_solid and item_solid.checkState() == Qt.CheckState.Checked:
+                solids.add(name)
+        return species, solids
 
     def on_run(self) -> None:
         temp = float(self.temp_spin.value())
         rh = float(self.rh_spin.value())
-        species = self.parse_species_text()
+        species, solids = self.parse_species_table()
 
         if rh < 0 or rh > 1:
             QMessageBox.warning(self, "Invalid input", "RH must be between 0 and 1.")
             return
-
         self.run_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)  # busy indicator
 
-        self.worker = AIMWorker(temp, rh, species)
+        self.worker = AIMWorker(temp, rh, species, solids)
         self.worker.result_ready.connect(self.on_result)
         self.worker.error.connect(self.on_error)
         self.worker.start()
