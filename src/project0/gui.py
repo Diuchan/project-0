@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
 
         # Relative humidity (fraction)
         self.rh_spin = QDoubleSpinBox()
-        self.rh_spin.setRange(0.0, 1.0)
+        self.rh_spin.setRange(0.1, 1.0)
         self.rh_spin.setSingleStep(0.01)
         self.rh_spin.setValue(0.5)
         fl.addRow(QLabel("Relative Humidity (0-1)"), self.rh_spin)
@@ -197,8 +197,8 @@ class MainWindow(QMainWindow):
         rh = float(self.rh_spin.value())
         species, solids = self.parse_species_table()
 
-        if rh < 0 or rh > 1:
-            QMessageBox.warning(self, "Invalid input", "RH must be between 0 and 1.")
+        if rh < 0.1 or rh > 1:
+            QMessageBox.warning(self, "Invalid input", "RH must be between 0.1 and 1.0.")
             return
         self.run_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
