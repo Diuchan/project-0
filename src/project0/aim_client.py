@@ -268,6 +268,15 @@ def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], soli
         payload.setdefault("submit", "Run model")
 
     # Finally POST to the action URL
+    # Optional debug: print action URL and payload when PROJECT0_DEBUG=1
+    try:
+        import os, json, sys
+        if os.environ.get("PROJECT0_DEBUG"):
+            print("[PROJECT0 DEBUG] Posting to:", action_url, file=sys.stderr)
+            print("[PROJECT0 DEBUG] Payload:", json.dumps(payload, indent=2, ensure_ascii=False), file=sys.stderr)
+    except Exception:
+        pass
+
     resp = sess.post(action_url, data=payload, headers={"Referer": AIM_URL, **HEADERS}, timeout=timeout)
     resp.raise_for_status()
     return resp.text
