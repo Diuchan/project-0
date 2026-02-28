@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(root)
 
         # Sidebar
+        QCheckBox,
         sidebar = QWidget()
         sl = QVBoxLayout(sidebar)
         fl = QFormLayout()
@@ -72,7 +73,8 @@ class MainWindow(QMainWindow):
         self.temp_spin.setRange(150.0, 2000.0)
         self.temp_spin.setValue(298.15)
         self.temp_spin.setSingleStep(1.0)
-        fl.addRow(QLabel("Temperature (K)"), self.temp_spin)
+                "H2SO4 · H2O",
+                "H2SO4 · 2H2O",
 
         # Relative humidity (fraction)
         self.rh_spin = QDoubleSpinBox()
@@ -88,6 +90,9 @@ class MainWindow(QMainWindow):
         sl.addWidget(QLabel("Ionic composition (moles)"))
         ionic_layout = QFormLayout()
         # use QLineEdit so users can enter scientific notation
+            # separate control for equilibrating over ice
+            self.equilibrate_ice_cb = QCheckBox("Equilibrate over ice?")
+            sl.addWidget(self.equilibrate_ice_cb)
         from PyQt6.QtWidgets import QLineEdit
 
         self.hydrogen_input = QLineEdit("0.0")
@@ -99,6 +104,9 @@ class MainWindow(QMainWindow):
         self.nitrate_input = QLineEdit("0.0")
         ionic_layout.addRow(QLabel("NO3- (moles)"), self.nitrate_input)
         sl.addLayout(ionic_layout)
+            self.uncheck_all_solids_btn = QPushButton("Uncheck All Solids")
+            self.uncheck_all_solids_btn.clicked.connect(lambda: [cb.setChecked(False) for cb in self.solid_checkboxes])
+            sl.addWidget(self.uncheck_all_solids_btn)
 
         # Solids section: checkboxes for each solid listed on the site
         sl.addWidget(QLabel("Omit the following solids (check to include):"))
@@ -204,6 +212,9 @@ class MainWindow(QMainWindow):
         for cb, name in zip(self.solid_checkboxes, self.solid_names):
             if cb.isChecked():
                 solids.add(name)
+        # include ice selection if checked
+        if hasattr(self, 'equilibrate_ice_cb') and self.equilibrate_ice_cb.isChecked():
+            solids.add('Ice')
 
         return species, solids
 
