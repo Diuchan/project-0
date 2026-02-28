@@ -115,6 +115,21 @@ def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], soli
         elif match_name(key, ["rh", "humid", "relative"]):
             payload[key] = str(rh)
 
+    # The AIM form uses 'water_var' for Relative Humidity; set it and switch
+    # the interactive type to RH mode (2) so the server uses RH rather than temp.
+    if any(k.lower() == 'water_var' or 'water_var' in k.lower() or 'water' in k.lower() for k in payload):
+        # prefer explicit water_var name
+        if 'water_var' in payload:
+            payload['water_var'] = str(rh)
+        else:
+            # set any water-like field
+            for k in list(payload.keys()):
+                if 'water' in k.lower():
+                    payload[k] = str(rh)
+                    break
+        # set interactive_type to 2 (RH mode)
+        payload['interactive_type'] = '2'
+
     # Attempt to place species values: match by exact name or common species input areas
     species_lines = "\n".join(f"{k} {v}" for k, v in species.items())
     placed = set()
