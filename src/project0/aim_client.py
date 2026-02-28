@@ -42,12 +42,133 @@ def build_payload(temperature_k: float, rh: float, species: Dict[str, float]) ->
 
 
 def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], timeout: int = 30) -> str:
-    """POST data to the AIM endpoint and return the response text.
+    """Submit the AIM form as if the user filled it and clicked the run button.
 
-    Raises requests.RequestException on network/HTTP errors.
+    Strategy:
+    - Start a session and GET the model page to obtain the form and any hidden fields.
+    - Auto-fill matching inputs (temperature, RH, species) using sensible name matching.
+    - Include the first submit/button value so the server treats this like the Run click.
+    - POST to the form action and return the resulting HTML.
+
+    This avoids using Selenium while still replicating the site's form workflow.
     """
-    payload = build_payload(temperature_k, rh, species)
-    resp = requests.post(AIM_URL, data=payload, headers=HEADERS, timeout=timeout)
+    sess = requests.Session()
+    sess.headers.update(HEADERS)
+
+    # GET the form page first to collect hidden fields and the real action URL
+    r = sess.get(AIM_URL, timeout=timeout)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "lxml")
+    form = soup.find("form")
+    if not form:
+        # fallback to a direct POST if no form found
+        payload = build_payload(temperature_k, rh, species)
+        resp = sess.post(AIM_URL, data=payload, timeout=timeout)
+        resp.raise_for_status()
+        return resp.text
+
+    # Determine action URL
+    action = form.get("action") or AIM_URL
+    action_url = requests.compat.urljoin(AIM_URL, action)
+
+    # Start with all existing input values
+    payload: Dict[str, str] = {}
+    # inputs
+    for inp in form.find_all(["input", "select", "textarea"]):
+        name = inp.get("name")
+        if not name:
+            continue
+        # textarea: use its text as default
+        if inp.name == "textarea":
+            payload[name] = inp.get_text("\n")
+            continue
+        # select: prefer selected option
+        if inp.name == "select":
+            sel = inp.find("option", selected=True)
+            if sel and sel.get("value") is not None:
+                payload[name] = sel.get("value")
+            else:
+                # take first option value if present
+                opt = inp.find("option")
+                payload[name] = opt.get("value") if opt and opt.get("value") is not None else ""
+            continue
+
+        # input types
+        itype = (inp.get("type") or "text").lower()
+        if itype in ("checkbox", "radio"):
+            if inp.has_attr("checked"):
+                payload[name] = inp.get("value", "on")
+            else:
+                # leave unchecked inputs out
+                continue
+        else:
+            payload[name] = inp.get("value", "")
+
+    # Heuristically fill temperature and RH fields
+    def match_name(n: str, patterns):
+        nlow = n.lower()
+        return any(p in nlow for p in patterns)
+
+    for key in list(payload.keys()):
+        if match_name(key, ["temp", "temperature", "t_"]) or key.lower() == "t":
+            payload[key] = str(temperature_k)
+        elif match_name(key, ["rh", "humid", "relative"]):
+            payload[key] = str(rh)
+
+    # Attempt to place species values: match by exact name or common species input areas
+    species_lines = "\n".join(f"{k} {v}" for k, v in species.items())
+    placed = set()
+    for sname in species.keys():
+        for key in payload:
+            if key.lower() == sname.lower():
+                payload[key] = str(species[sname])
+                placed.add(sname)
+                break
+
+    # If a textarea exists that looks like a species input, put species_lines there
+    if species_lines and not placed:
+        for inp in form.find_all("textarea"):
+            name = inp.get("name")
+            if not name:
+                continue
+            lname = name.lower()
+            if any(p in lname for p in ("species", "conc", "concentration", "input")):
+                payload[name] = species_lines
+                placed = set(species.keys())
+                break
+
+    # If no textarea found, but there is a field named like 'species' or 'concs', use it
+    if species_lines and not placed:
+        for key in list(payload.keys()):
+            if any(p in key.lower() for p in ("species", "conc", "concentration", "mole")):
+                payload[key] = species_lines
+                placed = set(species.keys())
+                break
+
+    # Ensure temperature/rh also in payload even if no matching field was found previously
+    if not any(match_name(k, ["temp", "temperature", "t_"]) or k.lower() == "t" for k in payload):
+        # add generic names
+        payload.setdefault("Temperature", str(temperature_k))
+        payload.setdefault("T", str(temperature_k))
+    if not any(match_name(k, ["rh", "humid", "relative"]) for k in payload):
+        payload.setdefault("RH", str(rh))
+
+    # Include a submit value by finding a submit/button element
+    submit_added = False
+    for btn in form.find_all(["input", "button"]):
+        btype = (btn.get("type") or "").lower()
+        if btype == "submit" or btn.name == "button":
+            name = btn.get("name")
+            val = btn.get("value") or btn.get_text(strip=True) or "Run"
+            if name:
+                payload[name] = val
+                submit_added = True
+                break
+    if not submit_added:
+        payload.setdefault("submit", "Run model")
+
+    # Finally POST to the action URL
+    resp = sess.post(action_url, data=payload, headers={"Referer": AIM_URL, **HEADERS}, timeout=timeout)
     resp.raise_for_status()
     return resp.text
 
