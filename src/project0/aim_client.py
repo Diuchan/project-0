@@ -130,15 +130,39 @@ def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], soli
         # set interactive_type to 2 (RH mode)
         payload['interactive_type'] = '2'
 
-    # Attempt to place species values: match by exact name or common species input areas
+    # Mapping of common chemical notation to form field names used by AIM
+    synonyms = {
+        'nh4+': 'ammonium',
+        'h+': 'hydrogen',
+        'so42-': 'sulphate',
+        'so4--': 'sulphate',
+        'no3-': 'nitrate',
+        'na+': 'sodium',
+        'cl-': 'chloride',
+        'k+': 'potassium',
+        'ca2+': 'calcium',
+        'mg2+': 'magnesium',
+    }
+
+    # Attempt to place species values: match by exact name, synonyms, or common species input areas
     species_lines = "\n".join(f"{k} {v}" for k, v in species.items())
     placed = set()
     for sname in species.keys():
+        placed_flag = False
         for key in payload:
-            if key.lower() == sname.lower():
+            if key and key.lower() == sname.lower():
                 payload[key] = str(species[sname])
                 placed.add(sname)
+                placed_flag = True
                 break
+        if placed_flag:
+            continue
+        # try synonyms mapping
+        syn = synonyms.get(sname.lower())
+        if syn and syn in payload:
+            payload[syn] = str(species[sname])
+            placed.add(sname)
+            continue
 
     # If a textarea exists that looks like a species input, put species_lines there
     if species_lines and not placed:
