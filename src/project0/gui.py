@@ -84,37 +84,53 @@ class MainWindow(QMainWindow):
         sl.addLayout(fl)
 
         # Species input
-        sl.addWidget(QLabel("Species concentrations"))
+        # Ionic composition section (moles): only four ionic species
+        sl.addWidget(QLabel("Ionic composition (moles)"))
+        ionic_layout = QFormLayout()
+        # use QLineEdit so users can enter scientific notation
+        from PyQt6.QtWidgets import QLineEdit
 
-        # Species table: Species | Concentration | Solid?
-        self.spec_table = QTableWidget(0, 3)
-        self.spec_table.setHorizontalHeaderLabels(["Species", "Concentration", "Solid?"])
-        self.spec_table.verticalHeader().setVisible(False)
-        self.spec_table.setColumnWidth(0, 120)
-        self.spec_table.setColumnWidth(1, 100)
-        self.spec_table.setColumnWidth(2, 60)
-        self.spec_table.setFixedHeight(200)
-        sl.addWidget(self.spec_table)
+        self.hydrogen_input = QLineEdit("0.0")
+        ionic_layout.addRow(QLabel("H+ (moles)"), self.hydrogen_input)
+        self.ammonium_input = QLineEdit("0.0")
+        ionic_layout.addRow(QLabel("NH4+ (moles)"), self.ammonium_input)
+        self.sulphate_input = QLineEdit("0.0")
+        ionic_layout.addRow(QLabel("SO42- (moles)"), self.sulphate_input)
+        self.nitrate_input = QLineEdit("0.0")
+        ionic_layout.addRow(QLabel("NO3- (moles)"), self.nitrate_input)
+        sl.addLayout(ionic_layout)
 
-        # Buttons for managing species rows
-        sp_btn_layout = QHBoxLayout()
-        self.add_row_btn = QPushButton("Add Row")
-        self.add_row_btn.clicked.connect(self.add_species_row)
-        sp_btn_layout.addWidget(self.add_row_btn)
-
-        self.remove_row_btn = QPushButton("Remove Selected")
-        self.remove_row_btn.clicked.connect(self.remove_selected_rows)
-        sp_btn_layout.addWidget(self.remove_row_btn)
+        # Solids section: checkboxes for each solid listed on the site
+        sl.addWidget(QLabel("Omit the following solids (check to include):"))
+        self.solid_names = [
+            "Ice",
+            "H2SO4 · H2O",
+            "H2SO4 · 2H2O",
+            "H2SO4 · 3H2O",
+            "H2SO4 · 4H2O",
+            "H2SO4 · 6.5H2O",
+            "HNO3 · H2O",
+            "HNO3 · 2H2O",
+            "HNO3 · 3H2O",
+            "(NH4)2SO4",
+            "(NH4)3H(SO4)2",
+            "NH4HSO4",
+            "NH4NO3",
+            "2NH4NO3 · (NH4)2SO4",
+            "3NH4NO3 · (NH4)2SO4",
+            "NH4NO3 · NH4HSO4",
+        ]
+        self.solid_checkboxes = []
+        for name in self.solid_names:
+            cb = QPushButton(name)
+            # use toggleable QPushButton to show checked state simply
+            cb.setCheckable(True)
+            self.solid_checkboxes.append(cb)
+            sl.addWidget(cb)
 
         self.check_all_solids_btn = QPushButton("Check All Solids")
-        self.check_all_solids_btn.clicked.connect(self.check_all_solids)
-        sp_btn_layout.addWidget(self.check_all_solids_btn)
-
-        sl.addLayout(sp_btn_layout)
-
-        # Prepopulate some common species (user can edit or add their own)
-        for name in ("Na+", "Cl-", "K+", "Ca2+", "Mg2+", "NH4+", "SO4--", "NO3-", "H+"):
-            self.add_species_row(name, "")
+        self.check_all_solids_btn.clicked.connect(lambda: [cb.setChecked(True) for cb in self.solid_checkboxes])
+        sl.addWidget(self.check_all_solids_btn)
 
         # Buttons + progress
         btn_layout = QHBoxLayout()
@@ -171,25 +187,24 @@ class MainWindow(QMainWindow):
                 item.setCheckState(Qt.CheckState.Checked)
 
     def parse_species_table(self) -> (Dict[str, float], set):
+        # Read ionic inputs and solid checkbox states
         species = {}
         solids = set()
-        for r in range(self.spec_table.rowCount()):
-            item_name = self.spec_table.item(r, 0)
-            item_conc = self.spec_table.item(r, 1)
-            item_solid = self.spec_table.item(r, 2)
-            if not item_name:
-                continue
-            name = item_name.text().strip()
-            if not name:
-                continue
-            val_text = item_conc.text().strip() if item_conc else ""
+        def to_float(text: str) -> float:
             try:
-                val = float(val_text) if val_text else 0.0
-            except ValueError:
-                val = 0.0
-            species[name] = val
-            if item_solid and item_solid.checkState() == Qt.CheckState.Checked:
+                return float(text)
+            except Exception:
+                return 0.0
+
+        species['H+'] = to_float(self.hydrogen_input.text())
+        species['NH4+'] = to_float(self.ammonium_input.text())
+        species['SO42-'] = to_float(self.sulphate_input.text())
+        species['NO3-'] = to_float(self.nitrate_input.text())
+
+        for cb, name in zip(self.solid_checkboxes, self.solid_names):
+            if cb.isChecked():
                 solids.add(name)
+
         return species, solids
 
     def on_run(self) -> None:

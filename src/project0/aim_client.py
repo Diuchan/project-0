@@ -164,6 +164,37 @@ def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], soli
             placed.add(sname)
             continue
 
+    # Map solid display names to form field names used on the AIM page
+    solids_synonyms = {
+        'Ice': 'ice',
+        'H2SO4 · H2O': 'h2so4_h2o',
+        'H2SO4 · 2H2O': 'h2so4_2h2o',
+        'H2SO4 · 3H2O': 'h2so4_3h2o',
+        'H2SO4 · 4H2O': 'h2so4_4h2o',
+        'H2SO4 · 6.5H2O': 'h2so4_65h2o',
+        'HNO3 · H2O': 'hno3_h2o',
+        'HNO3 · 2H2O': 'hno3_2h2o',
+        'HNO3 · 3H2O': 'hno3_3h2o',
+        '(NH4)2SO4': 'nh42so4',
+        '(NH4)3H(SO4)2': 'nh43hso42',
+        'NH4HSO4': 'nh4hso4',
+        'NH4NO3': 'nh4no3',
+        '2NH4NO3 · (NH4)2SO4': '2nh4no3_nh42so4',
+        '3NH4NO3 · (NH4)2SO4': '3nh4no3_nh42so4',
+        'NH4NO3 · NH4HSO4': 'nh4no3_nh4hso4',
+    }
+
+    if solids:
+        for s in solids:
+            field = solids_synonyms.get(s)
+            if field:
+                # if the field exists in the form payload, set it
+                if field in payload:
+                    payload[field] = form.find('input', attrs={'name': field}).get('value', '4') if form.find('input', attrs={'name': field}) else '4'
+                else:
+                    # otherwise, set generic name; post handling will ignore unknown names
+                    payload[field] = '4'
+
     # If a textarea exists that looks like a species input, put species_lines there
     if species_lines and not placed:
         for inp in form.find_all("textarea"):
