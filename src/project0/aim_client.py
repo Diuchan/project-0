@@ -195,6 +195,12 @@ def post_to_aim(temperature_k: float, rh: float, species: Dict[str, float], soli
                     # otherwise, set generic name; post handling will ignore unknown names
                     payload[field] = '4'
 
+    # Ensure 'ice' is NOT sent unless explicitly selected by the user.
+    # Some default form fields may be present; sending 'ice' causes the
+    # server to expect ice equilibrium (which requires T < 273.15).
+    if 'ice' in payload and (not solids or 'Ice' not in solids):
+        payload.pop('ice', None)
+
     # If a textarea exists that looks like a species input, put species_lines there
     if species_lines and not placed:
         for inp in form.find_all("textarea"):
